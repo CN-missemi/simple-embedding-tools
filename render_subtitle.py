@@ -10,8 +10,10 @@ import typing
 import math
 import time
 import aiofiles
+import ast
 MAIN_EXPR = re.compile(r"\{(?P<begin>[0-9]+)\}\{(?P<end>[0-9]+)\}(?P<text>.+)")
-CODE_EXPR = re.compile(r"`(.+?)`")
+SUBTIITLE_MATCH_EXPR = re.compile(
+    r"(?P<multiline_mark>\[((ml)|multiline)\])?(?P<text>.*)")
 MAJOR_FILENAME = "major.sub"
 MINOR_FILENAME = "minor.sub"
 image_path = pathlib.Path("subtitle-images")
@@ -20,8 +22,13 @@ local = os.getcwd()
 PAGE_COUNT = 8
 
 
-def render_to_html(text: str) -> str:
-    return CODE_EXPR.sub("""<span class="code">\\1</span>""", text)
+def parse_subtitle_string(text: str) -> str:
+    match_result = SUBTIITLE_MATCH_EXPR.match(text)
+    groups = match_result.groupdict()
+    # print(groups)
+    if groups["multiline_mark"] is not None:
+        return ast.literal_eval(groups["text"])
+    return groups["text"]
 
 
 async def main():
@@ -39,7 +46,7 @@ async def main():
                 subtitles.append({
                     "begin": groups["begin"],
                     "end": groups["end"],
-                    "text": groups["text"],
+                    "text": parse_subtitle_string(groups["text"]),
                     "type": subtitle_type,
                     "type_id": i+1
                 })
@@ -76,7 +83,7 @@ async def main():
         new_content = html_content.replace("REPLACE-HERE", buf.getvalue())
         async with aiofiles.open(f"render-{task_id}.html", "w", encoding="utf-8") as f:
             await f.write(new_content)
-        return
+        # return
         print(f"{task_id} loaded")
         page = await broswer.newPage()
         await page.setViewport({

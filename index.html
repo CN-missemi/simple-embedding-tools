@@ -46,10 +46,6 @@
     </style>
     <script>
         $(document).ready(() => {
-            const htmlDecode = input => {
-                let doc = new DOMParser().parseFromString(input, "text/html");
-                return doc.documentElement.textContent;
-            };
             const classMap = {
                 code: "code"
             };
@@ -59,25 +55,29 @@
                     regex: new RegExp(`<${key}(.*)>`, 'g'),
                     replace: `<${key} class="${classMap[key]}" $1>`
                 }));
+            const TREMA = String.fromCharCode(168);
+            const DOLLARD_CHR = TREMA + "D";
             const converter = new showdown.Converter({
-                extensions: [{
-                    type: 'output', regex: /\$\$([\S\s]+?)\$\$/g, replace: (x, y) => {
-                        let result = katex.renderToString(htmlDecode(y), {
-                            throwOnError: false,
-                            displayMode: true
-                        });
-                        return result;
-                    }
-                },
-                {
-                    type: 'output', regex: /\$([\S\s]+?)\$/g, replace: (x, y) => {
-                        let result = katex.renderToString(htmlDecode(y), {
-                            throwOnError: false,
-                            displayMode: false
-                        });
-                        return result;
-                    }
-                }, ...bindings],
+                extensions: [
+                    {
+                        type: 'lang', regex: `${DOLLARD_CHR}${DOLLARD_CHR}([\\S\\s]+?)${DOLLARD_CHR}${DOLLARD_CHR}`, replace: (x, y) => {
+                            let result = katex.renderToString(y, {
+                                throwOnError: true,
+                                displayMode: true
+                            });
+                            return result;
+                        }
+                    },
+                    {
+                        type: 'lang', regex: `${DOLLARD_CHR}([\\S\\s]+?)${DOLLARD_CHR}`, replace: (x, y) => {
+                            let result = katex.renderToString(y, {
+                                throwOnError: true,
+                                displayMode: false
+                            });
+                            return result;
+                        }
+                    },
+                    ...bindings],
                 literalMidWordUnderscores: true,
                 strikethrough: true
             });
