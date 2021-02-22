@@ -11,6 +11,7 @@ import math
 import time
 import aiofiles
 import ast
+import tempfile
 MAIN_EXPR = re.compile(r"\{(?P<begin>[0-9]+)\}\{(?P<end>[0-9]+)\}(?P<text>.+)")
 SUBTIITLE_MATCH_EXPR = re.compile(
     r"(?P<multiline_mark>\[((ml)|multiline)\])?(?P<text>.*)")
@@ -34,6 +35,7 @@ def parse_subtitle_string(text: str) -> str:
 async def main():
     begin_time = time.time()
     subtitles = []
+    broswer_temp_path = tempfile.mkdtemp()
 
     def load_file(filename: str, subtitle_type: str):
         with open(filename, "r", encoding="utf-8") as f:
@@ -60,7 +62,7 @@ async def main():
     broswer = await pyppeteer.launch({
         "headless": True,
         'args': ['--disable-infobars', '--window-size=1920,1080', '--no-sandbox'],
-        "userDataDir": r"""E:\Temp"""
+        "userDataDir": broswer_temp_path
     })
 
     async def take_screen_shot(id: int, page: pyppeteer.page.Page):
@@ -112,7 +114,7 @@ async def main():
     ])
     await broswer.close()
     end_time = time.time()
-
+    shutil.rmtree(broswer_temp_path, ignore_errors=True)
     print(f"ok, {(end_time-begin_time)}s")
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(main())
