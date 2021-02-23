@@ -4,3 +4,4 @@ numba
 ujson
 pyppeteer
 aiofiles
+pydash

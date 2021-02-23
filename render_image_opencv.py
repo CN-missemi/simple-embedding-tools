@@ -1,3 +1,8 @@
+from concurrent.futures import ThreadPoolExecutor
+from numba import cuda
+import numba
+import time
+import re
 from cv2 import cv2
 import pathlib
 import numpy
@@ -5,14 +10,11 @@ import os
 import shutil
 import typing
 import dataclasses
-import multiprocessing
-import re
-import time
-import numba
-from numba import cuda
-
+from pydash import py_
+import typing
 # ffmpeg的帧编码从1开始
 # render_subtitle渲染所得文件的帧编号也从1开始
+# sub里的帧编码从1开始
 
 
 subtitle_images = pathlib.Path("subtitle-images")
@@ -22,7 +24,9 @@ FILENAME_EXPR = re.compile(
     r"(?P<type>(major)|(minor))-subtitle-(?P<id>[0-9]+)-(?P<begin>[0-9]+)-(?P<end>[0-9]+)\.png")
 BOTTOM_OFFSET = 40  # 主字幕底边距离视频底部的距离
 TOP_OFFSET = 40  # 副字幕顶边距离视频顶部的距离
-
+INPUT_VIDEO_FILENAME = "lec.mp4"  # 输入文件名
+OUTPUT_VIDEO_FILENAME = "output1.mp4"
+CHUNK_SIZE = 1000
 
 @dataclasses.dataclass
 class RenderData:
@@ -35,7 +39,7 @@ class RenderData:
     force_render: bool = False  # 为true时，即使目标文件已经存在也要重新渲染
 
 
-@numba.njit(parallel=True, nogil=True)
+@numba.njit(parallel=True, nogil=True, inline="always", boundscheck=False)
 # @cuda.jit()
 def render_subtitle(src_img: numpy.ndarray, subtitle_img: numpy.ndarray, major: bool):
     rowc = len(subtitle_img)
@@ -60,39 +64,27 @@ def render_subtitle(src_img: numpy.ndarray, subtitle_img: numpy.ndarray, major: 
     src_img[lurow:lurow+rowc, lucol:lucol+colc] = bg_area
 
 
-def render_to_image(data: RenderData):
-    filename = f"{data.flap}.png"
-    if os.path.exists(rendered_images/filename):
-        if data.force_render:
-            os.remove(rendered_images/filename)
-        else:
-            return
-    if not data.has_subtitle:
-        if not os.path.exists(raw_images/filename):
-            return
-        shutil.copy(raw_images/filename, rendered_images/filename)
-        return
-    src_img = cv2.imread(str(raw_images/filename))
-    if data.subtitle_img is not None:
-        render_subtitle(src_img, data.subtitle_img, True)
-    if data.minor_subtitle_img is not None:
-        render_subtitle(src_img, data.minor_subtitle_img, False)
-    cv2.imwrite(str(rendered_images/filename), src_img)
-    print(filename, "ok")
-
+@numba.njit(nogil=True)
+def render_subtitle_wrapper(arg: typing.Tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]):
+    src_img, major_subtitle_img, minor_subtitle_img = arg
+    if len(major_subtitle_img) != 0:
+        render_subtitle(src_img, major_subtitle_img, True)
+    if len(minor_subtitle_img) != 0:
+        render_subtitle(src_img, minor_subtitle_img, False)
+    return src_img
 
 def main():
     begin_time = time.time()
     if not os.path.exists(rendered_images):
         os.mkdir(rendered_images)
     renderdata = [RenderData(flap=i, subtitle_img=None, subtitle_id=-1, minor_subtitle_id=-1, minor_subtitle_img=None,
-                             has_subtitle=False) for i in range(0, 86880+2)]  # full:67071
+                             has_subtitle=False) for i in range(0, 86880)]  # full:67071
     for item in os.listdir(subtitle_images):
         match_result = FILENAME_EXPR.match(item)
         groupdict = match_result.groupdict()
-        # sub里的帧数从0开始
-        begin = int(groupdict["begin"])+1
-        end = int(groupdict["end"])+1
+        # sub里的帧数从1开始
+        begin = int(groupdict["begin"])-1
+        end = int(groupdict["end"])-1
         subtitle_type = groupdict["type"]
         subtitle_id = int(groupdict["id"])
         print(subtitle_images/item)
@@ -121,20 +113,40 @@ def main():
                     minor_subtitle_id=subtitle_id,
                     has_subtitle=True
                 )
-                # renderdata[j] = RenderData(
-                #     flap=j,
-                #     subtitle_img=renderdata[j].subtitle_img,
-                #     subtitle_id=renderdata[j].subtitle_id,
-                #     minor_subtitle_img=None,
-                #     minor_subtitle_id=-1,
-                #     has_subtitle=True,
-                #     force_render=True
-                # )  # 只渲染副字幕
-
-        # break
     print(f"{len(renderdata)} flaps loaded")
-    pool = multiprocessing.Pool()
-    pool.map(render_to_image, renderdata)
+    pool = ThreadPoolExecutor()
+    video_reader = cv2.VideoCapture(INPUT_VIDEO_FILENAME)
+    video_writer = cv2.VideoWriter(OUTPUT_VIDEO_FILENAME, cv2.VideoWriter_fourcc(
+        *"mp4v"), 30, (1920, 1080), True)
+    empty_frame = numpy.ndarray([0, 0, 0])
+    for seq in py_.chunk(renderdata, CHUNK_SIZE):
+        chunk_begin = time.time()
+        print(f"Rendering for {len(seq)} flaps, range from {seq[0].flap} to {seq[-1].flap}")
+        count = len(seq)
+        frames = []
+        print("Decoding frames..")
+        for _ in range(count):
+            ok, frame = video_reader.read()
+            if not ok:
+                print("?")
+                break
+            frames.append(frame)
+            # print(len(frame),len(frame[0]))
+        print(f"{len(seq)=} {len(frames)=}")
+        assert len(seq) == len(frames)
+        print("Frames loaded.")
+        args = [(frame, (empty_frame if render_data.subtitle_img is None else render_data.subtitle_img),
+                 (empty_frame if render_data.minor_subtitle_img is None else render_data.minor_subtitle_img)) for frame, render_data in zip(frames, seq)]
+        output: typing.List[numpy.ndarray] = list(pool.map(
+            render_subtitle_wrapper, args))
+        print("Render done.")
+        for frame in output:
+            video_writer.write(frame)
+        chunk_end = time.time()
+        print(f"Output ok with {chunk_end-chunk_begin}s .")
+    pool.shutdown()
+    video_reader.release()
+    video_writer.release()
     end_time = time.time()
     print(f"Task done, {end_time-begin_time}s")
 

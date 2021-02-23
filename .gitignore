@@ -4,6 +4,11 @@ __pycache__/
 *$py.class
 *.sub
 subtitle-images
+lec1.mp4
+lec.mp4
+output1.mp4
+myaudio.m4a
+output.mp4
 # C extensions
 *.so
 
