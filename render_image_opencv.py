@@ -27,6 +27,9 @@ TOP_OFFSET = 40  # 副字幕顶边距离视频顶部的距离
 INPUT_VIDEO_FILENAME = "lec.mp4"  # 输入文件名
 OUTPUT_VIDEO_FILENAME = "output1.mp4"
 CHUNK_SIZE = 1000
+TOTAL_FLAPS = 86880
+VIDEO_SHAPE = (1920, 1080)
+
 
 @dataclasses.dataclass
 class RenderData:
@@ -73,12 +76,13 @@ def render_subtitle_wrapper(arg: typing.Tuple[numpy.ndarray, numpy.ndarray, nump
         render_subtitle(src_img, minor_subtitle_img, False)
     return src_img
 
+
 def main():
     begin_time = time.time()
     if not os.path.exists(rendered_images):
         os.mkdir(rendered_images)
     renderdata = [RenderData(flap=i, subtitle_img=None, subtitle_id=-1, minor_subtitle_id=-1, minor_subtitle_img=None,
-                             has_subtitle=False) for i in range(0, 86880)]  # full:67071
+                             has_subtitle=False) for i in range(0, TOTAL_FLAPS)]  # full:67071
     for item in os.listdir(subtitle_images):
         match_result = FILENAME_EXPR.match(item)
         groupdict = match_result.groupdict()
@@ -117,11 +121,12 @@ def main():
     pool = ThreadPoolExecutor()
     video_reader = cv2.VideoCapture(INPUT_VIDEO_FILENAME)
     video_writer = cv2.VideoWriter(OUTPUT_VIDEO_FILENAME, cv2.VideoWriter_fourcc(
-        *"mp4v"), 30, (1920, 1080), True)
+        *"mp4v"), 30, VIDEO_SHAPE, True)
     empty_frame = numpy.ndarray([0, 0, 0])
     for seq in py_.chunk(renderdata, CHUNK_SIZE):
         chunk_begin = time.time()
-        print(f"Rendering for {len(seq)} flaps, range from {seq[0].flap} to {seq[-1].flap}")
+        print(
+            f"Rendering for {len(seq)} flaps, range from {seq[0].flap} to {seq[-1].flap}")
         count = len(seq)
         frames = []
         print("Decoding frames..")
