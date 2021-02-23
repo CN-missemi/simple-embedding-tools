@@ -22,6 +22,8 @@ rendered_images = pathlib.Path("rendered-images")
 raw_images = pathlib.Path("images")
 FILENAME_EXPR = re.compile(
     r"(?P<type>(major)|(minor))-subtitle-(?P<id>[0-9]+)-(?P<begin>[0-9]+)-(?P<end>[0-9]+)\.png")
+    
+# This is by default 这是默认配置
 BOTTOM_OFFSET = 40  # 主字幕底边距离视频底部的距离
 TOP_OFFSET = 40  # 副字幕顶边距离视频顶部的距离
 INPUT_VIDEO_FILENAME = "lec.mp4"  # 输入文件名
@@ -29,6 +31,7 @@ OUTPUT_VIDEO_FILENAME = "output1.mp4"
 CHUNK_SIZE = 1000
 TOTAL_FLAPS = 86880
 VIDEO_SHAPE = (1920, 1080)
+FPS = 30
 
 
 @dataclasses.dataclass
@@ -81,6 +84,14 @@ def main():
     begin_time = time.time()
     if not os.path.exists(rendered_images):
         os.mkdir(rendered_images)
+        
+    video_reader = cv2.VideoCapture(INPUT_VIDEO_FILENAME)
+    FPS = int(video_reader.get(cv2.CAP_PROP_FPS))
+    VIDEO_SHAPE = (int(video_reader.get(cv2.CAP_PROP_FRAME_WIDTH)), 
+    int(video_reader.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    TOTAL_FLAPS = int(video_reader.get(cv2.CAP_PROP_FRAME_COUNT))
+    print(f"Video size = {VIDEO_SHAPE}, FPS = {FPS}, has {TOTAL_FLAPS} frames in total.")
+    
     renderdata = [RenderData(flap=i, subtitle_img=None, subtitle_id=-1, minor_subtitle_id=-1, minor_subtitle_img=None,
                              has_subtitle=False) for i in range(0, TOTAL_FLAPS)]  # full:67071
     for item in os.listdir(subtitle_images):
@@ -119,9 +130,8 @@ def main():
                 )
     print(f"{len(renderdata)} flaps loaded")
     pool = ThreadPoolExecutor()
-    video_reader = cv2.VideoCapture(INPUT_VIDEO_FILENAME)
     video_writer = cv2.VideoWriter(OUTPUT_VIDEO_FILENAME, cv2.VideoWriter_fourcc(
-        *"mp4v"), 30, VIDEO_SHAPE, True)
+    *"mp4v"), FPS, VIDEO_SHAPE, True)
     empty_frame = numpy.ndarray([0, 0, 0])
     for seq in py_.chunk(renderdata, CHUNK_SIZE):
         chunk_begin = time.time()
