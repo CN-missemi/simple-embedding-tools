@@ -1,37 +1,33 @@
 from concurrent.futures import ThreadPoolExecutor
-from numba import cuda
+from pydash import py_
+from cv2 import cv2
 import numba
 import time
 import re
-from cv2 import cv2
 import pathlib
 import numpy
 import os
 import shutil
 import typing
 import dataclasses
-from pydash import py_
 import typing
+import argparse
+import sys
 # ffmpeg的帧编码从1开始
 # render_subtitle渲染所得文件的帧编号也从1开始
 # sub里的帧编码从1开始
 
 
 subtitle_images = pathlib.Path("subtitle-images")
-rendered_images = pathlib.Path("rendered-images")
-raw_images = pathlib.Path("images")
 FILENAME_EXPR = re.compile(
     r"(?P<type>(major)|(minor))-subtitle-(?P<id>[0-9]+)-(?P<begin>[0-9]+)-(?P<end>[0-9]+)\.png")
-    
+
 # This is by default 这是默认配置
 BOTTOM_OFFSET = 40  # 主字幕底边距离视频底部的距离
 TOP_OFFSET = 40  # 副字幕顶边距离视频顶部的距离
 INPUT_VIDEO_FILENAME = "lec.mp4"  # 输入文件名
 OUTPUT_VIDEO_FILENAME = "output1.mp4"
 CHUNK_SIZE = 1000
-TOTAL_FLAPS = 86880
-VIDEO_SHAPE = (1920, 1080)
-FPS = 30
 
 
 @dataclasses.dataclass
@@ -46,7 +42,6 @@ class RenderData:
 
 
 @numba.njit(parallel=True, nogil=True, inline="always", boundscheck=False)
-# @cuda.jit()
 def render_subtitle(src_img: numpy.ndarray, subtitle_img: numpy.ndarray, major: bool):
     rowc = len(subtitle_img)
     colc = len(subtitle_img[0])
@@ -81,19 +76,35 @@ def render_subtitle_wrapper(arg: typing.Tuple[numpy.ndarray, numpy.ndarray, nump
 
 
 def main():
+
+    arg_parser = argparse.ArgumentParser(description="向视频中嵌入字幕")
+    arg_parser.add_argument(
+        "--chunk-size", default=CHUNK_SIZE, help=f"每轮所渲染的帧数 (默认为 {CHUNK_SIZE})", type=int, required=False)
+    arg_parser.add_argument(
+        "--input", "-i", default=INPUT_VIDEO_FILENAME, help=f"输入视频文件名 (mp4格式, 默认为'{INPUT_VIDEO_FILENAME}')", type=str, required=False)
+    arg_parser.add_argument(
+        "--output", "-o", default=OUTPUT_VIDEO_FILENAME, help=f"输出视频文件名 (mp4格式, 默认为'{OUTPUT_VIDEO_FILENAME}')", type=str,  required=False)
+    parse_result = arg_parser.parse_args()
+    chunk_size = parse_result.chunk_size
+    input_file_name = parse_result.input
+    output_file_name = parse_result.output
+
     begin_time = time.time()
-    if not os.path.exists(rendered_images):
-        os.mkdir(rendered_images)
-        
-    video_reader = cv2.VideoCapture(INPUT_VIDEO_FILENAME)
-    FPS = int(video_reader.get(cv2.CAP_PROP_FPS))
-    VIDEO_SHAPE = (int(video_reader.get(cv2.CAP_PROP_FRAME_WIDTH)), 
-    int(video_reader.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-    TOTAL_FLAPS = int(video_reader.get(cv2.CAP_PROP_FRAME_COUNT))
-    print(f"Video size = {VIDEO_SHAPE}, FPS = {FPS}, has {TOTAL_FLAPS} frames in total.")
-    
+    video_reader = cv2.VideoCapture(input_file_name)
+
+    video_fps = int(video_reader.get(cv2.CAP_PROP_FPS))
+    video_shape = (int(video_reader.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                   int(video_reader.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+    total_flaps = int(video_reader.get(cv2.CAP_PROP_FRAME_COUNT))
+    print(
+        f"Video shape(width,height) = {video_shape}, FPS = {video_fps}, has {total_flaps} frames in total.")
+    print(f"Input file: {input_file_name}")
+    print(f"Output file: {output_file_name}")
+    print(f"Chunk size: {chunk_size}")
+    video_writer = cv2.VideoWriter(output_file_name, cv2.VideoWriter_fourcc(
+        *"mp4v"), video_fps, video_shape, True)
     renderdata = [RenderData(flap=i, subtitle_img=None, subtitle_id=-1, minor_subtitle_id=-1, minor_subtitle_img=None,
-                             has_subtitle=False) for i in range(0, TOTAL_FLAPS)]  # full:67071
+                             has_subtitle=False) for i in range(0, total_flaps)]
     for item in os.listdir(subtitle_images):
         match_result = FILENAME_EXPR.match(item)
         groupdict = match_result.groupdict()
@@ -102,7 +113,7 @@ def main():
         end = int(groupdict["end"])-1
         subtitle_type = groupdict["type"]
         subtitle_id = int(groupdict["id"])
-        print(subtitle_images/item)
+        # print(subtitle_images/item)
         image_data = cv2.imread(str(subtitle_images/item))
         if subtitle_type == "major":
             for j in range(begin, end+1):
@@ -130,10 +141,9 @@ def main():
                 )
     print(f"{len(renderdata)} flaps loaded")
     pool = ThreadPoolExecutor()
-    video_writer = cv2.VideoWriter(OUTPUT_VIDEO_FILENAME, cv2.VideoWriter_fourcc(
-    *"mp4v"), FPS, VIDEO_SHAPE, True)
+
     empty_frame = numpy.ndarray([0, 0, 0])
-    for seq in py_.chunk(renderdata, CHUNK_SIZE):
+    for seq in py_.chunk(renderdata, chunk_size):
         chunk_begin = time.time()
         print(
             f"Rendering for {len(seq)} flaps, range from {seq[0].flap} to {seq[-1].flap}")
@@ -142,11 +152,8 @@ def main():
         print("Decoding frames..")
         for _ in range(count):
             ok, frame = video_reader.read()
-            if not ok:
-                print("?")
-                break
+            assert ok, "Never should OpenCV failed to read a frame"
             frames.append(frame)
-            # print(len(frame),len(frame[0]))
         print(f"{len(seq)=} {len(frames)=}")
         assert len(seq) == len(frames)
         print("Frames loaded.")
