@@ -37,8 +37,6 @@ class RenderData:
     subtitle_id: int = -1
     minor_subtitle_img: numpy.ndarray = None
     minor_subtitle_id: int = -1
-    has_subtitle: bool = False
-    force_render: bool = False  # 为true时，即使目标文件已经存在也要重新渲染
 
 
 @numba.njit(parallel=True, nogil=True, inline="always", boundscheck=False)
@@ -104,7 +102,7 @@ def main():
     video_writer = cv2.VideoWriter(output_file_name, cv2.VideoWriter_fourcc(
         *"mp4v"), video_fps, video_shape, True)
     renderdata = [RenderData(flap=i, subtitle_img=None, subtitle_id=-1, minor_subtitle_id=-1, minor_subtitle_img=None,
-                             has_subtitle=False) for i in range(0, total_flaps)]
+                             ) for i in range(0, total_flaps)]
     for item in os.listdir(subtitle_images):
         match_result = FILENAME_EXPR.match(item)
         groupdict = match_result.groupdict()
@@ -124,8 +122,7 @@ def main():
                     subtitle_img=image_data,
                     subtitle_id=subtitle_id,
                     minor_subtitle_id=renderdata[j].minor_subtitle_id,
-                    minor_subtitle_img=renderdata[j].minor_subtitle_img,
-                    has_subtitle=True)
+                    minor_subtitle_img=renderdata[j].minor_subtitle_img)
 
         else:
             for j in range(begin, end+1):
@@ -137,7 +134,6 @@ def main():
                     subtitle_id=renderdata[j].subtitle_id,
                     minor_subtitle_img=image_data,
                     minor_subtitle_id=subtitle_id,
-                    has_subtitle=True
                 )
     print(f"{len(renderdata)} flaps loaded")
     pool = ThreadPoolExecutor()
