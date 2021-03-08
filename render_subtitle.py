@@ -85,7 +85,6 @@ async def main():
         new_content = html_content.replace("REPLACE-HERE", buf.getvalue())
         async with aiofiles.open(f"render-{task_id}.html", "w", encoding="utf-8") as f:
             await f.write(new_content)
-        # return
         print(f"{task_id} loaded")
         page = await broswer.newPage()
         await page.setViewport({
