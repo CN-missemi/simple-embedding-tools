@@ -12,6 +12,7 @@ import time
 import aiofiles
 import ast
 import tempfile
+import html
 MAIN_EXPR = re.compile(r"\{(?P<begin>[0-9]+)\}\{(?P<end>[0-9]+)\}(?P<text>.+)")
 SUBTIITLE_MATCH_EXPR = re.compile(
     r"(?P<multiline_mark>\[((ml)|multiline)\])?(?P<text>.*)")
@@ -29,7 +30,7 @@ def parse_subtitle_string(text: str) -> str:
     # print(groups)
     if groups["multiline_mark"] is not None:
         return ast.literal_eval(groups["text"])
-    return groups["text"]
+    return html.escape(html.escape(groups["text"]))
 
 
 async def main():
