@@ -26,11 +26,12 @@ PAGE_COUNT = 8
 
 def parse_subtitle_string(text: str) -> str:
     match_result = SUBTIITLE_MATCH_EXPR.match(text)
+    assert match_result
     groups = match_result.groupdict()
     # print(groups)
     if groups["multiline_mark"] is not None:
         return ast.literal_eval(groups["text"])
-    return html.escape(html.escape(groups["text"]))
+    return (html.escape(groups["text"]))
 
 
 async def main():

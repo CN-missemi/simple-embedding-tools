@@ -9,6 +9,9 @@ lec.mp4
 output1.mp4
 myaudio.m4a
 output.mp4
+render-*.html
+rendered-images
+subtitle-images
 # C extensions
 *.so
 
